@@ -1619,278 +1619,288 @@ void CNEMOEulerSolver::BC_Far_Field(CGeometry *geometry,
 }
 
 void CNEMOEulerSolver::BC_Inlet(CGeometry *geometry, CSolver **solver_container,
-                                CNumerics *conv_numerics, CNumerics *visc_numerics, CConfig *config, unsigned short val_marker) {
-  SU2_MPI::Error("BC_INLET: Not operational in NEMO.", CURRENT_FUNCTION);
+                                CNumerics *conv_numerics,
+                                CNumerics *visc_numerics, CConfig *config,
+                                unsigned short val_marker) {
 
-  unsigned short iVar, iDim, iSpecies, RHO_INDEX, nSpecies;
-
-  unsigned long iVertex, iPoint;
-  su2double  T_Total, P_Total, Velocity[3], Velocity2, H_Total, Temperature, Riemann,
-  Pressure, Density, Energy, Mach2, SoundSpeed2, SoundSpeed_Total2, Vel_Mag,
-  alpha, aa, bb, cc, dd, Area, UnitNormal[3] = {0.0};
-
-  const su2double *Flow_Dir;
-  bool implicit             = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
-
-  bool dynamic_grid         = config->GetGrid_Movement();
-  su2double Two_Gamma_M1    = 2.0/Gamma_Minus_One;
-  su2double Gas_Constant    = config->GetGas_ConstantND();
   INLET_TYPE Kind_Inlet = config->GetKind_Inlet();
-  string Marker_Tag         = config->GetMarker_All_TagBound(val_marker);
+  string Marker_Tag = config->GetMarker_All_TagBound(val_marker);
 
-  su2double *U_domain = new su2double[nVar];      su2double *U_inlet = new su2double[nVar];
-  su2double *V_domain = new su2double[nPrimVar];  su2double *V_inlet = new su2double[nPrimVar];
-  su2double *Normal   = new su2double[nDim];
+  su2double Normal[MAXNDIM] = {0.0};
+  su2double Mvec_inlet[MAXNDIM] = {0.0};
+  su2double Velocity[MAXNDIM] = {0.0};
+  su2double UnitNormal[MAXNDIM] = {0.0};
 
-  nSpecies = config->GetnSpecies();
-  su2double *Spec_Density = new su2double[nSpecies];
-  for(iSpecies=0; iSpecies<nSpecies; iSpecies++)
-    Spec_Density[iSpecies] = 0.0;               /*--- To avoid a compiler warning. ---*/
+  const su2double Two_Gamma_M1 = 2.0 / Gamma_Minus_One;
+  const su2double Gas_Constant = config->GetGas_ConstantND();
 
-  RHO_INDEX = nodes->GetRhoIndex();
+  unsigned short RHO_INDEX = nodes->GetRhoIndex();
 
   /*--- Loop over all the vertices on this boundary marker ---*/
-  for (iVertex = 0; iVertex < geometry->nVertex[val_marker]; iVertex++) {
-    iPoint = geometry->vertex[val_marker][iVertex]->GetNode();
+  for (unsigned long iVertex = 0; iVertex < geometry->nVertex[val_marker];
+       iVertex++) {
+    const auto iPoint = geometry->vertex[val_marker][iVertex]->GetNode();
 
-    /*--- Check if the node belongs to the domain (i.e., not a halo node) ---*/
-    if (geometry->nodes->GetDomain(iPoint)) {
+    /*--- Check if the node belongs to the domain (i.e, not a halo node) ---*/
+    if (!geometry->nodes->GetDomain(iPoint))
+      continue;
 
-      /*--- Normal vector for this vertex (negate for outward convention) ---*/
-      geometry->vertex[val_marker][iVertex]->GetNormal(Normal);
-      for (iDim = 0; iDim < nDim; iDim++) Normal[iDim] = -Normal[iDim];
-      conv_numerics->SetNormal(Normal);
+    /*--- Normal vector for this vertex (negate for outward convention) ---*/
+    geometry->vertex[val_marker][iVertex]->GetNormal(Normal);
+    for (unsigned short iDim = 0; iDim < nDim; iDim++)
+      Normal[iDim] = -Normal[iDim];
 
-      Area = GeometryToolbox::Norm(nDim, Normal);
+    const su2double Area = GeometryToolbox::Norm(nDim, Normal);
 
-      for (iDim = 0; iDim < nDim; iDim++)
-        UnitNormal[iDim] = Normal[iDim]/Area;
+    for (unsigned short iDim = 0; iDim < nDim; iDim++)
+      UnitNormal[iDim] = Normal[iDim] / Area;
 
-      /*--- Retrieve solution at this boundary node ---*/
-      for (iVar = 0; iVar < nVar; iVar++)     U_domain[iVar] = nodes->GetSolution(iPoint, iVar);
-      for (iVar = 0; iVar < nPrimVar; iVar++) V_domain[iVar] = nodes->GetPrimitive(iPoint,iVar);
+    /*--- Build the fictitious intlet state based on characteristics ---*/
+    /*--- Subsonic inflow: there is one outgoing characteristic (u-c),
+     therefore we can specify all but one state variable at the inlet.
+     The outgoing Riemann invariant provides the final piece of info.
+     Adapted from an original implementation in the Stanford University
+     multi-block (SUmb) solver in the routine bcSubsonicInflow.f90
+     written by Edwin van der Weide, last modified 04-20-2009. ---*/
 
-      /*--- Build the fictitious intlet state based on characteristics ---*/
+    switch (Kind_Inlet) {
 
-      /*--- Subsonic inflow: there is one outgoing characteristic (u-c),
-       therefore we can specify all but one state variable at the inlet.
-       The outgoing Riemann invariant provides the final piece of info.
-       Adapted from an original implementation in the Stanford University
-       multi-block (SUmb) solver in the routine bcSubsonicInflow.f90
-       written by Edwin van der Weide, last modified 04-20-2009. ---*/
+    /*--- Total properties have been specified at the inlet. ---*/
+    case INLET_TYPE::TOTAL_CONDITIONS: {
 
-      switch (Kind_Inlet) {
+      /*--- Retrieve the specified total conditions for this inlet. ---*/
+      su2double P_Total = config->GetInlet_Ptotal(Marker_Tag);
+      su2double T_Total = config->GetInlet_Ttotal(Marker_Tag);
+      const su2double *Flow_Dir = config->GetInlet_FlowDir(Marker_Tag);
+      const su2double *Mass_Frac_inlet = config->GetInlet_MassFrac();
 
-      /*--- Total properties have been specified at the inlet. ---*/
-      case INLET_TYPE::TOTAL_CONDITIONS:
+      /*--- Non-dim. the inputs if necessary. ---*/
+      P_Total /= config->GetPressure_Ref();
+      T_Total /= config->GetTemperature_Ref();
 
-        /*--- Retrieve the specified total conditions for this inlet. ---*/
-        P_Total  = config->GetInlet_Ptotal(Marker_Tag);
-        T_Total  = config->GetInlet_Ttotal(Marker_Tag);
-        Flow_Dir = config->GetInlet_FlowDir(Marker_Tag);
+      /*--- Store primitives and set some variables for clarity. ---*/
+      su2double Density = nodes->GetPrimitive(iPoint, RHO_INDEX);
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Velocity[iDim] = nodes->GetSolution(iPoint, nSpecies + iDim) / Density;
 
-        /*--- Non-dim. the inputs if necessary. ---*/
-        P_Total /= config->GetPressure_Ref();
-        T_Total /= config->GetTemperature_Ref();
+      su2double Velocity2 = GeometryToolbox::SquaredNorm(nDim, Velocity);
+      const su2double Energy = nodes->GetSolution(iPoint, nVar - 2) / Density;
+      const su2double Pressure =
+          Gamma_Minus_One * Density * (Energy - 0.5 * Velocity2);
+      const su2double H_Total =
+          (Gamma * Gas_Constant / Gamma_Minus_One) * T_Total;
+      su2double SoundSpeed2 = Gamma * Pressure / Density;
 
-        /*--- Store primitives and set some variables for clarity. ---*/
-        Density = V_domain[RHO_INDEX];
-        for (iDim = 0; iDim < nDim; iDim++)
-          Velocity[iDim] = U_domain[nSpecies+iDim]/Density;
+      /*--- Compute the acoustic Riemann invariant that is extrapolated
+         from the domain interior. ---*/
+      su2double Riemann = 2.0 * sqrt(SoundSpeed2) / Gamma_Minus_One;
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Riemann += Velocity[iDim] * UnitNormal[iDim];
 
-        Velocity2   = GeometryToolbox::SquaredNorm(nDim, Velocity);
-        Energy      = U_domain[nVar-2]/Density;
-        Pressure    = Gamma_Minus_One*Density*(Energy-0.5*Velocity2);
-        H_Total     = (Gamma*Gas_Constant/Gamma_Minus_One)*T_Total;
-        SoundSpeed2 = Gamma*Pressure/Density;
+      /*--- Total speed of sound ---*/
+      const su2double SoundSpeed_Total2 =
+          Gamma_Minus_One *
+              (H_Total - (Energy + Pressure / Density) + 0.5 * Velocity2) +
+          SoundSpeed2;
 
-        /*--- Compute the acoustic Riemann invariant that is extrapolated
-           from the domain interior. ---*/
-        Riemann   = 2.0*sqrt(SoundSpeed2)/Gamma_Minus_One;
-        for (iDim = 0; iDim < nDim; iDim++)
-          Riemann += Velocity[iDim]*UnitNormal[iDim];
+      /*--- Dot product of normal and flow direction. This should
+         be negative due to outward facing boundary normal convention. ---*/
+      const su2double alpha =
+          GeometryToolbox::DotProduct(nDim, UnitNormal, Flow_Dir);
 
-        /*--- Total speed of sound ---*/
-        SoundSpeed_Total2 = Gamma_Minus_One*(H_Total - (Energy + Pressure/Density)+0.5*Velocity2) + SoundSpeed2;
+      /*--- Coefficients in the quadratic equation for the velocity ---*/
+      const su2double aa = 1.0 + 0.5 * Gamma_Minus_One * alpha * alpha;
+      const su2double bb = -1.0 * Gamma_Minus_One * alpha * Riemann;
+      const su2double cc = 0.5 * Gamma_Minus_One * Riemann * Riemann -
+                           2.0 * SoundSpeed_Total2 / Gamma_Minus_One;
 
-        /*--- Dot product of normal and flow direction. This should
-           be negative due to outward facing boundary normal convention. ---*/
-        alpha = GeometryToolbox::DotProduct(nDim, UnitNormal, Flow_Dir);
+      /*--- Solve quadratic equation for velocity magnitude. Value must
+         be positive, so the choice of root is clear. ---*/
+      const su2double dd = sqrt(max(0.0, bb * bb - 4.0 * aa * cc));
+      su2double Vel_Mag = max(0.0, (-bb + dd) / (2.0 * aa));
+      Velocity2 = Vel_Mag * Vel_Mag;
 
-        /*--- Coefficients in the quadratic equation for the velocity ---*/
-        aa =  1.0 + 0.5*Gamma_Minus_One*alpha*alpha;
-        bb = -1.0*Gamma_Minus_One*alpha*Riemann;
-        cc =  0.5*Gamma_Minus_One*Riemann*Riemann
-            -2.0*SoundSpeed_Total2/Gamma_Minus_One;
+      /*--- Compute speed of sound from total speed of sound eqn. ---*/
+      SoundSpeed2 = SoundSpeed_Total2 - 0.5 * Gamma_Minus_One * Velocity2;
 
-        /*--- Solve quadratic equation for velocity magnitude. Value must
-           be positive, so the choice of root is clear. ---*/
-        dd = bb*bb - 4.0*aa*cc;
-        dd = sqrt(max(0.0,dd));
-        Vel_Mag   = (-bb + dd)/(2.0*aa);
-        Vel_Mag   = max(0.0,Vel_Mag);
-        Velocity2 = Vel_Mag*Vel_Mag;
+      /*--- Mach squared (cut between 0-1), use to adapt velocity ---*/
+      const su2double Mach2 = min(1.0, Velocity2 / SoundSpeed2);
+      Velocity2 = Mach2 * SoundSpeed2;
+      Vel_Mag = sqrt(Velocity2);
+      SoundSpeed2 = SoundSpeed_Total2 - 0.5 * Gamma_Minus_One * Velocity2;
 
-        /*--- Compute speed of sound from total speed of sound eqn. ---*/
-        SoundSpeed2 = SoundSpeed_Total2 - 0.5*Gamma_Minus_One*Velocity2;
+      /*--- Compute new velocity vector at the inlet ---*/
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Velocity[iDim] = Vel_Mag * Flow_Dir[iDim];
 
-        /*--- Mach squared (cut between 0-1), use to adapt velocity ---*/
-        Mach2 = Velocity2/SoundSpeed2;
-        Mach2 = min(1.0,Mach2);
-        Velocity2   = Mach2*SoundSpeed2;
-        Vel_Mag     = sqrt(Velocity2);
-        SoundSpeed2 = SoundSpeed_Total2 - 0.5*Gamma_Minus_One*Velocity2;
+      /*--- Static temperature from the speed of sound relation ---*/
+      const su2double Temperature_inlet = SoundSpeed2 / (Gamma * Gas_Constant);
+      const su2double Temperature_ve_inlet = Temperature_inlet;
 
-        /*--- Compute new velocity vector at the inlet ---*/
-        for (iDim = 0; iDim < nDim; iDim++)
-          Velocity[iDim] = Vel_Mag*Flow_Dir[iDim];
+      /*--- Static pressure using isentropic relation at a point ---*/
+      const su2double Pressure_inlet =
+          P_Total * pow((Temperature_inlet / T_Total), Gamma / Gamma_Minus_One);
 
-        /*--- Static temperature from the speed of sound relation ---*/
-        Temperature = SoundSpeed2/(Gamma*Gas_Constant);
-        //NEED TVE AS WELL
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Mvec_inlet[iDim] = Velocity[iDim] / sqrt(SoundSpeed2);
 
-        /*--- Static pressure using isentropic relation at a point ---*/
-        Pressure = P_Total*pow((Temperature/T_Total),Gamma/Gamma_Minus_One);
+      /*--- Allocate inlet node to compute gradients for numerics ---*/
+      CNEMOEulerVariable node_inlet(Pressure_inlet, Mass_Frac_inlet, Mvec_inlet,
+                                    Temperature_inlet, Temperature_ve_inlet, 1,
+                                    nDim, nVar, nPrimVar, nPrimVarGrad, config,
+                                    FluidModel);
 
-        /*--- Density at the inlet from the gas law ---*/
-        Density = Pressure/(Gas_Constant*Temperature);
-        //NEED SPECIES DENSITIES
-
-        /*--- Using pressure, density, & velocity, compute the energy ---*/
-        Energy = Pressure/(Density*Gamma_Minus_One)+0.5*Velocity2;
-        //NEED EVE AS WELL
-
-        /*--- Conservative variables, using the derived quantities ---*/
-        for (iSpecies=0; iSpecies<nSpecies; iSpecies++)
-          U_inlet[iSpecies] = Spec_Density[iSpecies];
-        for (iDim = 0; iDim < nDim; iDim++)
-          U_inlet[nSpecies+iDim] = Velocity[iDim]*Density;
-        U_inlet[nVar-2] = Energy*Density;
-        //U_inlet[nVar-1]=Eve
-
-        /*--- Primitive variables, using the derived quantities ---*/
-        for (iSpecies=0; iSpecies<nSpecies; iSpecies++)
-          V_inlet[iSpecies] = Spec_Density[iSpecies];
-        V_inlet[nSpecies] = Temperature;
-        //V_inlet[nSpecies+1] = Tve
-        for (iDim = 0; iDim < nDim; iDim++)
-          V_inlet[nSpecies+2] = Velocity[iDim];
-        V_inlet[nSpecies+nDim+2] = Pressure;
-        V_inlet[RHO_INDEX] = Density;
-        //V_inlet[H_INDEX] = H;
-        //V_inlet[A_INDEX] = A;
-        //V_inlet[RHO_CVTR_INDEX] = rcvtr;
-        //V_inlet[RHO_CVVE_INDEX] = rcvve;
-
-        break;
-
-        /*--- Mass flow has been specified at the inlet. ---*/
-      case INLET_TYPE::MASS_FLOW:
-
-        /*--- Retrieve the specified mass flow for the inlet. ---*/
-        Density  = config->GetInlet_Ttotal(Marker_Tag);
-        Vel_Mag  = config->GetInlet_Ptotal(Marker_Tag);
-        Flow_Dir = config->GetInlet_FlowDir(Marker_Tag);
-
-        /*--- Non-dim. the inputs if necessary. ---*/
-        Density /= config->GetDensity_Ref();
-        Vel_Mag /= config->GetVelocity_Ref();
-
-        /*--- Get primitives from current inlet state. ---*/
-        for (iDim = 0; iDim < nDim; iDim++)
-          Velocity[iDim] = nodes->GetVelocity(iPoint, iDim);
-        Pressure    = nodes->GetPressure(iPoint);
-        SoundSpeed2 = Gamma*Pressure/U_domain[0];
-
-        /*--- Compute the acoustic Riemann invariant that is extrapolated
-           from the domain interior. ---*/
-        Riemann = Two_Gamma_M1*sqrt(SoundSpeed2);
-        for (iDim = 0; iDim < nDim; iDim++)
-          Riemann += Velocity[iDim]*UnitNormal[iDim];
-
-        /*--- Speed of sound squared for fictitious inlet state ---*/
-        SoundSpeed2 = Riemann;
-        for (iDim = 0; iDim < nDim; iDim++)
-          SoundSpeed2 -= Vel_Mag*Flow_Dir[iDim]*UnitNormal[iDim];
-
-        SoundSpeed2 = max(0.0,0.5*Gamma_Minus_One*SoundSpeed2);
-        SoundSpeed2 = SoundSpeed2*SoundSpeed2;
-
-        /*--- Pressure for the fictitious inlet state ---*/
-        Pressure = SoundSpeed2*Density/Gamma;
-
-        /*--- Energy for the fictitious inlet state ---*/
-        Energy = Pressure/(Density*Gamma_Minus_One)+0.5*Vel_Mag*Vel_Mag;
-
-        /*--- Conservative variables, using the derived quantities ---*/
-        U_inlet[0] = Density;
-        for (iDim = 0; iDim < nDim; iDim++)
-          U_inlet[iDim+1] = Vel_Mag*Flow_Dir[iDim]*Density;
-        U_inlet[nDim+1] = Energy*Density;
-
-        /*--- Primitive variables, using the derived quantities ---*/
-        V_inlet[0] = Pressure / ( Gas_Constant * Density);
-        for (iDim = 0; iDim < nDim; iDim++)
-          V_inlet[iDim+1] = Vel_Mag*Flow_Dir[iDim];
-        V_inlet[nDim+1] = Pressure;
-        V_inlet[nDim+2] = Density;
-
-        break;
-
-      default:
-        SU2_MPI::Error("Unsupported INLET_TYPE.", CURRENT_FUNCTION);
-        break;
-      }
+      node_inlet.SetPrimVar(0, FluidModel);
 
       /*--- Set various quantities in the solver class ---*/
-      conv_numerics->SetConservative(U_domain, U_inlet);
+      conv_numerics->SetNormal(Normal);
+      conv_numerics->SetConservative(nodes->GetSolution(iPoint),
+                                     node_inlet.GetSolution(0));
+      conv_numerics->SetPrimitive(nodes->GetPrimitive(iPoint),
+                                  node_inlet.GetPrimitive(0));
 
+      /*--- Pass supplementary info to CNumerics ---*/
+      conv_numerics->SetdPdU(nodes->GetdPdU(iPoint), node_inlet.GetdPdU(0));
+      conv_numerics->SetdTdU(nodes->GetdTdU(iPoint), node_inlet.GetdTdU(0));
+      conv_numerics->SetdTvedU(nodes->GetdTvedU(iPoint),
+                               node_inlet.GetdTvedU(0));
+      conv_numerics->SetEve(nodes->GetEve(iPoint), node_inlet.GetEve(0));
+      conv_numerics->SetCvve(nodes->GetCvve(iPoint), node_inlet.GetCvve(0));
+
+      const bool dynamic_grid = config->GetGrid_Movement();
       if (dynamic_grid)
-        conv_numerics->SetGridVel(geometry->nodes->GetGridVel(iPoint), geometry->nodes->GetGridVel(iPoint));
+        conv_numerics->SetGridVel(geometry->nodes->GetGridVel(iPoint),
+                                  geometry->nodes->GetGridVel(iPoint));
 
       /*--- Compute the residual using an upwind scheme ---*/
       auto residual = conv_numerics->ComputeResidual(config);
-
       LinSysRes.AddBlock(iPoint, residual);
 
       /*--- Jacobian contribution for implicit integration ---*/
-      if (implicit) Jacobian.AddBlock2Diag(iPoint, residual.jacobian_i);
+      const bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
+      if (implicit)
+        Jacobian.AddBlock2Diag(iPoint, residual.jacobian_i);
 
-//      /*--- Viscous contribution ---*/
-//      if (viscous) {
-
-//        /*--- Set the normal vector and the coordinates ---*/
-//        visc_numerics->SetNormal(Normal);
-//        su2double Coord_Reflected[MAXNDIM];
-//        GeometryToolbox::PointPointReflect(nDim, geometry->nodes->GetCoord(Point_Normal),
-//                                                 geometry->nodes->GetCoord(iPoint), Coord_Reflected);
-//        visc_numerics->SetCoord(geometry->nodes->GetCoord(), Coord_Reflected);
-
-//        /*--- Primitive variables, and gradient ---*/
-//        visc_numerics->SetPrimitive(V_domain, V_inlet);
-//        visc_numerics->SetPrimVarGradient(nodes->GetGradient_Primitive(), nodes->GetGradient_Primitive());
-
-//        /*--- Laminar viscosity ---*/
-//        visc_numerics->SetLaminarViscosity(nodes->GetLaminarViscosity(), nodes->GetLaminarViscosity());
-
-//        /*--- Compute and update residual ---*/
-//        visc_numerics->ComputeResidual(Residual, Jacobian_i, Jacobian_j, config);
-//        LinSysRes.SubtractBlock(iPoint, Residual);
-
-//        /*--- Jacobian contribution for implicit integration ---*/
-//        if (implicit)
-//          Jacobian.SubtractBlock(iPoint, iPoint, Jacobian_i);
-//      }
+      break;
     }
-  }
+      /*--- Mass flow has been specified at the inlet. ---*/
+    case INLET_TYPE::MASS_FLOW: {
+      /*--- Retrieve the specified mass flow for the inlet. ---*/
+      su2double Density = config->GetInlet_Ttotal(Marker_Tag);
+      su2double Vel_Mag = config->GetInlet_Ptotal(Marker_Tag);
+      const su2double *Flow_Dir = config->GetInlet_FlowDir(Marker_Tag);
+      const su2double *Mass_Frac_inlet = config->GetInlet_MassFrac();
 
-  /*--- Free locally allocated memory ---*/
-  delete [] U_domain;
-  delete [] U_inlet;
-  delete [] V_domain;
-  delete [] V_inlet;
-  delete [] Normal;
-  delete [] Spec_Density;
+      /*--- Non-dim. the inputs if necessary. ---*/
+      Density /= config->GetDensity_Ref();
+      Vel_Mag /= config->GetVelocity_Ref();
+
+      /*--- Get primitives from current inlet state. ---*/
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Velocity[iDim] = nodes->GetVelocity(iPoint, iDim);
+      const su2double Pressure = nodes->GetPressure(iPoint);
+      su2double SoundSpeed2 =
+          Gamma * Pressure / nodes->GetPrimitive(iPoint, RHO_INDEX);
+
+      /*--- Compute the acoustic Riemann invariant that is extrapolated
+         from the domain interior. ---*/
+      su2double Riemann = Two_Gamma_M1 * sqrt(SoundSpeed2);
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Riemann += Velocity[iDim] * UnitNormal[iDim];
+
+      /*--- Speed of sound squared for fictitious inlet state ---*/
+      SoundSpeed2 = Riemann;
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        SoundSpeed2 -= Vel_Mag * Flow_Dir[iDim] * UnitNormal[iDim];
+
+      SoundSpeed2 = max(0.0, 0.5 * Gamma_Minus_One * SoundSpeed2);
+      SoundSpeed2 = SoundSpeed2 * SoundSpeed2;
+
+      for (unsigned short iDim = 0; iDim < nDim; iDim++)
+        Mvec_inlet[iDim] = Velocity[iDim] / sqrt(SoundSpeed2);
+
+      /*--- Pressure for the fictitious inlet state ---*/
+      const su2double Pressure_inlet = SoundSpeed2 * Density / Gamma;
+
+      const su2double Temperature_inlet =
+          Pressure_inlet / (Gas_Constant * Density);
+      const su2double Temperature_ve_inlet = Temperature_inlet;
+
+      /*--- Allocate inlet node to compute gradients for numerics ---*/
+      CNEMOEulerVariable node_inlet(Pressure_inlet, Mass_Frac_inlet, Mvec_inlet,
+                                    Temperature_inlet, Temperature_ve_inlet, 1,
+                                    nDim, nVar, nPrimVar, nPrimVarGrad, config,
+                                    FluidModel);
+
+      node_inlet.SetPrimVar(0, FluidModel);
+
+      /*--- Set various quantities in the solver class ---*/
+      conv_numerics->SetNormal(Normal);
+      conv_numerics->SetConservative(nodes->GetSolution(iPoint),
+                                     node_inlet.GetSolution(0));
+      conv_numerics->SetPrimitive(nodes->GetPrimitive(iPoint),
+                                  node_inlet.GetPrimitive(0));
+
+      /*--- Pass supplementary info to CNumerics ---*/
+      conv_numerics->SetdPdU(nodes->GetdPdU(iPoint), node_inlet.GetdPdU(0));
+      conv_numerics->SetdTdU(nodes->GetdTdU(iPoint), node_inlet.GetdTdU(0));
+      conv_numerics->SetdTvedU(nodes->GetdTvedU(iPoint),
+                               node_inlet.GetdTvedU(0));
+      conv_numerics->SetEve(nodes->GetEve(iPoint), node_inlet.GetEve(0));
+      conv_numerics->SetCvve(nodes->GetCvve(iPoint), node_inlet.GetCvve(0));
+
+      const bool dynamic_grid = config->GetGrid_Movement();
+      if (dynamic_grid)
+        conv_numerics->SetGridVel(geometry->nodes->GetGridVel(iPoint),
+                                  geometry->nodes->GetGridVel(iPoint));
+
+      /*--- Compute the residual using an upwind scheme ---*/
+      auto residual = conv_numerics->ComputeResidual(config);
+      LinSysRes.AddBlock(iPoint, residual);
+
+      /*--- Jacobian contribution for implicit integration ---*/
+      const bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
+      if (implicit)
+        Jacobian.AddBlock2Diag(iPoint, residual.jacobian_i);
+
+      break;
+    }
+    default:
+      SU2_MPI::Error("Unsupported INLET_TYPE.", CURRENT_FUNCTION);
+      break;
+    }
+
+    //      /*--- Viscous contribution ---*/
+    //      if (viscous) {
+
+    //        /*--- Set the normal vector and the coordinates ---*/
+    //        visc_numerics->SetNormal(Normal);
+    //        su2double Coord_Reflected[MAXNDIM];
+    //        GeometryToolbox::PointPointReflect(nDim,
+    //        geometry->nodes->GetCoord(Point_Normal),
+    //                                                 geometry->nodes->GetCoord(iPoint),
+    //                                                 Coord_Reflected);
+    //        visc_numerics->SetCoord(geometry->nodes->GetCoord(),
+    //        Coord_Reflected);
+
+    //        /*--- Primitive variables, and gradient ---*/
+    //        visc_numerics->SetPrimitive(V_domain, V_inlet);
+    //        visc_numerics->SetPrimVarGradient(nodes->GetGradient_Primitive(),
+    //        nodes->GetGradient_Primitive());
+
+    //        /*--- Laminar viscosity ---*/
+    //        visc_numerics->SetLaminarViscosity(nodes->GetLaminarViscosity(),
+    //        nodes->GetLaminarViscosity());
+
+    //        /*--- Compute and update residual ---*/
+    //        visc_numerics->ComputeResidual(Residual, Jacobian_i, Jacobian_j,
+    //        config); LinSysRes.SubtractBlock(iPoint, Residual);
+
+    //        /*--- Jacobian contribution for implicit integration ---*/
+    //        if (implicit)
+    //          Jacobian.SubtractBlock(iPoint, iPoint, Jacobian_i);
+    //      }
+  }
 }
 
 void CNEMOEulerSolver::BC_Outlet(CGeometry *geometry, CSolver **solver_container,
@@ -2164,6 +2174,7 @@ void CNEMOEulerSolver::BC_Supersonic_Inlet(
     Temperature_ve = Temperature;
   }
 
+  // TODO: is this line necessary?
   /*--- Set mixture state ---*/
   FluidModel->SetTDStatePTTv(Pressure, Mass_Frac, Temperature, Temperature_ve);
 
