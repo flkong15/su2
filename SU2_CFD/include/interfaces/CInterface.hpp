@@ -219,4 +219,7 @@ public:
    */
   void GatherAverageValues(CSolver *donor_solution, CSolver *target_solution, unsigned short donorZone);
 
+  inline virtual void SetLambdaL(CSolver *target_solution, CGeometry *target_geometry, const CConfig *target_config,
+                          unsigned long Marker_Target) {};
+
 };

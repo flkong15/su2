@@ -1993,6 +1993,9 @@ enum ENUM_OBJECTIVE {
   TOPOL_DISCRETENESS = 63,      /*!< \brief Measure of the discreteness of the current topology. */
   TOPOL_COMPLIANCE = 64,        /*!< \brief Measure of the discreteness of the current topology. */
   STRESS_PENALTY = 65,          /*!< \brief Penalty function of VM stresses above a maximum value. */
+  STREAMWISE_LAMBDAL= 71, /*!< /brief temp. expo. coefficient for iso-thermal BCs Streamwise Periodic. */
+  STREAMWISE_PERIODIC_DP= 72, /*!< /brief pressure drop in Streamwise Periodic flow domain. */
+  STREAMWISE_PERIODIC_MASSFLOW= 73, /*!< /brief massflow rate in Streamwise Periodic flow domain. */
 };
 static const MapType<std::string, ENUM_OBJECTIVE> Objective_Map = {
   MakePair("DRAG", DRAG_COEFFICIENT)
@@ -2028,6 +2031,9 @@ static const MapType<std::string, ENUM_OBJECTIVE> Objective_Map = {
   MakePair("SURFACE_PRESSURE_DROP", SURFACE_PRESSURE_DROP)
   MakePair("SURFACE_SPECIES_0", SURFACE_SPECIES_0)
   MakePair("SURFACE_SPECIES_VARIANCE", SURFACE_SPECIES_VARIANCE)
+  MakePair("STREAMWISE_LAMBDAL", STREAMWISE_LAMBDAL)
+  MakePair("STREAMWISE_PERIODIC_DP", STREAMWISE_PERIODIC_DP)
+  MakePair("STREAMWISE_PERIODIC_MASSFLOW", STREAMWISE_PERIODIC_MASSFLOW)
   MakePair("CUSTOM_OBJFUNC", CUSTOM_OBJFUNC)
   MakePair("REFERENCE_GEOMETRY", REFERENCE_GEOMETRY)
   MakePair("REFERENCE_NODE", REFERENCE_NODE)
@@ -2655,6 +2661,8 @@ struct StreamwisePeriodicValues {
   su2double Streamwise_Periodic_InletTemperature;   /*!< \brief Area avg static Temp [K] at the periodic inlet. Used for adaptive outlet heatsink. */
   su2double Streamwise_Periodic_BoundaryArea;       /*!< \brief Global Surface area of the streamwise periodic interface. */
   su2double Streamwise_Periodic_AvgDensity;         /*!< \brief Area avg density on the periodic interface. */
+  su2double Streamwise_Periodic_LambdaL;            /*!< \brief Temperature Gradient in iso-thermal BCs. */
+  su2double Streamwise_Periodic_ThetaScaling;       /*!< \brief Scaled Temperature for iso-thermal BCs. */
 };
 
 /*!
