@@ -70,14 +70,16 @@ COutput::COutput(const CConfig *config, unsigned short ndim, bool fem_output):
   volumeFilename  = "volume";
   restartFilename = "restart";
 
-  /*--- Retrieve the history filename ---*/
 
-  historyFilename = config->GetConv_FileName();
 
   /*--- Add the correct file extension depending on the file format ---*/
 
   string hist_ext = ".csv";
   if (config->GetTabular_FileFormat() == TAB_OUTPUT::TAB_TECPLOT) hist_ext = ".dat";
+
+  /*--- Retrieve the history filename ---*/
+
+  historyFilename = config->GetConv_FileName() + string(hist_ext);
 
   /*--- Append the zone ID ---*/
 
@@ -169,7 +171,7 @@ COutput::COutput(const CConfig *config, unsigned short ndim, bool fem_output):
   volumeDataSorter = nullptr;
   surfaceDataSorter = nullptr;
 
-  headerNeeded = false; 
+  headerNeeded = false;
 }
 
 COutput::~COutput() {
@@ -233,7 +235,7 @@ void COutput::SetHistoryOutput(CGeometry ****geometry, CSolver *****solver, CCon
 
   if (config[ZONE_0]->GetMultizone_Problem())
     Iter = OuterIter;
-    
+
   /*--- Turbomachinery Performance Screen summary output---*/
   if (Iter%100 == 0 && rank == MASTER_NODE) {
     SetTurboPerformance_Output(TurboPerf, config[val_iZone], TimeIter, OuterIter, InnerIter);
@@ -360,14 +362,10 @@ void COutput::LoadData(CGeometry *geometry, CConfig *config, CSolver** solver_co
 
 }
 
-void COutput::WriteToFile(CConfig *config, CGeometry *geometry, OUTPUT_TYPE format, string fileName){
+void COutput::WriteToFile(CConfig *config, CGeometry *geometry, OUTPUT_TYPE format, string fileName) {
 
   /*--- File writer that will later be used to write the file to disk. Created below in the "switch" ---*/
   CFileWriter *fileWriter = nullptr;
-
-  /*--- If it is still present, strip the extension (suffix) from the filename ---*/
-  const auto lastindex = fileName.find_last_of('.');
-  fileName = fileName.substr(0, lastindex);
 
   /*--- If the filename with appended iteration is set (depending on the WRT_*_OVERWRITE options)
    *    two files are writen, the normal one and a copy to avoid overwriting previous outputs. ---*/
