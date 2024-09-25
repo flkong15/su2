@@ -1146,6 +1146,8 @@ void CConfig::SetConfig_Options() {
 
   /*\brief AXISYMMETRIC \n DESCRIPTION: Axisymmetric simulation \n DEFAULT: false \ingroup Config */
   addBoolOption("AXISYMMETRIC", Axisymmetric, false);
+  /*\brief ENABLE_CUDA \n DESCRIPTION: GPU Acceleration \n DEFAULT: false \ingroup Config */
+  addBoolOption("ENABLE_CUDA", Enable_Cuda, false);
   /* DESCRIPTION: Add the gravity force */
   addBoolOption("GRAVITY_FORCE", GravityForce, false);
   /* DESCRIPTION: Add the Vorticity Confinement term*/
@@ -2421,6 +2423,7 @@ void CConfig::SetConfig_Options() {
   /* DESCRIPTION: Number of aligned bytes for the matrix multiplications. Multiple of 64. (128 by default) */
   addUnsignedShortOption("ALIGNED_BYTES_MATMUL", byteAlignmentMatMul, 128);
 
+  addUnsignedShortOption("GPU Matrix Multiplication Size", gpuSizeMatMulPadding, 65472);
   /*!\par CONFIG_CATEGORY: FEA solver \ingroup Config*/
   /*--- Options related to the FEA solver ---*/
 
