@@ -251,36 +251,36 @@ void CTurbSSTSolver::Postprocessing(CGeometry *geometry, CSolver **solver_contai
 
   /*--- Compute turbulence index ---*/
   if (config->GetKind_Trans_Model() != TURB_TRANS_MODEL::NONE) {
-    for (auto iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++)
-      if (config->GetViscous_Wall(iMarker)) {
-        SU2_OMP_FOR_STAT(OMP_MIN_SIZE)
-        for (auto iVertex = 0u; iVertex < geometry->nVertex[iMarker]; iVertex++) {
-          const auto iPoint = geometry->vertex[iMarker][iVertex]->GetNode();
+    for (auto iMarker = 0; iMarker < config->GetnMarker_All(); iMarker++) {
+      if (!config->GetViscous_Wall(iMarker)) continue;
 
-          /*--- Check if the node belongs to the domain (i.e, not a halo node) ---*/
+      SU2_OMP_FOR_STAT(OMP_MIN_SIZE)
+      for (auto iVertex = 0u; iVertex < geometry->nVertex[iMarker]; iVertex++) {
+        const auto iPoint = geometry->vertex[iMarker][iVertex]->GetNode();
 
-          if (geometry->nodes->GetDomain(iPoint)) {
-            const auto jPoint = geometry->vertex[iMarker][iVertex]->GetNormal_Neighbor();
+        /*--- Check if the node belongs to the domain (i.e, not a halo node) ---*/
 
-            su2double shearStress = 0.0;
-            for(auto iDim = 0u; iDim < nDim; iDim++) {
-              shearStress += pow(solver_container[FLOW_SOL]->GetCSkinFriction(iMarker, iVertex, iDim), 2.0);
-            }
-            shearStress = sqrt(shearStress);
+        if (!geometry->nodes->GetDomain(iPoint)) continue;
 
-            const su2double FrictionVelocity = sqrt(shearStress/flowNodes->GetDensity(iPoint));
-            const su2double wall_dist = geometry->nodes->GetWall_Distance(jPoint);
-            const su2double Derivative = flowNodes->GetLaminarViscosity(jPoint) * pow(nodes->GetSolution(jPoint, 0), 0.673) / wall_dist;
-            const su2double turbulence_index = 6.1 * Derivative / pow(FrictionVelocity, 2.346);
+        const auto jPoint = geometry->vertex[iMarker][iVertex]->GetNormal_Neighbor();
 
-            nodes->SetTurbIndex(iPoint, turbulence_index);
-
-          }
+        su2double shearStress = 0.0;
+        for(auto iDim = 0u; iDim < nDim; iDim++) {
+          shearStress += pow(solver_container[FLOW_SOL]->GetCSkinFriction(iMarker, iVertex, iDim), 2.0);
         }
-        END_SU2_OMP_FOR
-      }
-  }
+        shearStress = sqrt(shearStress);
 
+        const su2double FrictionVelocity = sqrt(shearStress/flowNodes->GetDensity(iPoint));
+        const su2double wall_dist = NearestNeighborDistance(geometry, config, iPoint);
+
+        const su2double Derivative = flowNodes->GetLaminarViscosity(jPoint) * pow(nodes->GetSolution(jPoint, 0), 0.673) / wall_dist;
+        const su2double turbulence_index = 6.1 * Derivative / pow(FrictionVelocity, 2.346);
+
+        nodes->SetTurbIndex(iPoint, turbulence_index);
+      }
+      END_SU2_OMP_FOR
+    }
+  }
 
   AD::EndNoSharedReading();
 }
@@ -459,20 +459,17 @@ void CTurbSSTSolver::BC_HeatFlux_Wall(CGeometry *geometry, CSolver **solver_cont
       } else { // smooth wall
 
         /*--- distance to closest neighbor ---*/
-        const auto jPoint = geometry->vertex[val_marker][iVertex]->GetNormal_Neighbor();
+        su2double wall_dist = NearestNeighborDistance(geometry, config, iPoint);
 
-        su2double distance2 = GeometryToolbox::SquaredDistance(nDim,
-                                                             geometry->nodes->GetCoord(iPoint),
-                                                             geometry->nodes->GetCoord(jPoint));
         /*--- Set wall values ---*/
-
+        const auto jPoint = geometry->vertex[val_marker][iVertex]->GetNormal_Neighbor();
         su2double density = solver_container[FLOW_SOL]->GetNodes()->GetDensity(jPoint);
         su2double laminar_viscosity = solver_container[FLOW_SOL]->GetNodes()->GetLaminarViscosity(jPoint);
 
         su2double beta_1 = constants[4];
         su2double solution[MAXNVAR];
         solution[0] = 0.0;
-        solution[1] = 60.0*laminar_viscosity/(density*beta_1*distance2);
+        solution[1] = 60.0*laminar_viscosity/(density*beta_1*pow(wall_dist,2));
 
         /*--- Set the solution values and zero the residual ---*/
         nodes->SetSolution_Old(iPoint,solution);
@@ -1012,8 +1009,7 @@ su2double CTurbSSTSolver::GetInletAtVertex(unsigned short iMarker, unsigned long
 
   su2double Normal[MAXNDIM] = {0.0};
   geometry->vertex[iMarker][iVertex]->GetNormal(Normal);
-  return GeometryToolbox::Norm(nDim, Normal);
-}
+  return GeometryToolbox::Norm(nDim, Normal);}
 
 void CTurbSSTSolver::SetUniformInlet(const CConfig* config, unsigned short iMarker) {
   if (config->GetMarker_All_KindBC(iMarker) == INLET_FLOW) {
@@ -1023,4 +1019,31 @@ void CTurbSSTSolver::SetUniformInlet(const CConfig* config, unsigned short iMark
     }
   }
 
+}
+
+su2double CTurbSSTSolver::NearestNeighborDistance(CGeometry *geometry, const CConfig *config,
+                                                  unsigned long iPoint) const {
+  const su2double max = std::numeric_limits<su2double>::max();
+  su2double distance = max;
+  for (const auto jPoint : geometry->nodes->GetPoints(iPoint)) {
+    const su2double dist = geometry->nodes->GetWall_Distance(jPoint);
+    if (dist > EPS) distance = fmin(distance, dist);
+  }
+  if (distance > 0 && distance < max) return distance;
+
+  /*--- The point only has wall neighbors, which all have 0 wall distance.
+   *    Compute an alternative distance based on volume and wall area. ---*/
+
+  su2double Normal[MAXNDIM] = {};
+  for (auto iMarker = 0u; iMarker < config->GetnMarker_All(); iMarker++) {
+    if (!config->GetViscous_Wall(iMarker)) continue;
+
+    const auto iVertex = geometry->nodes->GetVertex(iPoint, iMarker);
+    if (iVertex < 0) continue;
+
+    for (auto iDim = 0u; iDim < nDim; iDim++)
+      Normal[iDim] += geometry->vertex[iMarker][iVertex]->GetNormal(iDim);
+  }
+  const su2double Vol = geometry->nodes->GetVolume(iPoint) + geometry->nodes->GetPeriodicVolume(iPoint);
+  return 2 * Vol / GeometryToolbox::Norm(nDim, Normal);
 }
