@@ -1622,7 +1622,6 @@ enum BC_TYPE {
   FLUID_INTERFACE = 39,       /*!< \brief Domain interface definition. */
   DISP_DIR_BOUNDARY = 40,     /*!< \brief Boundary displacement definition. */
   DAMPER_BOUNDARY = 41,       /*!< \brief Damper. */
-  MIXING_PLANE_INTERFACE = 42,          /*<  \breif Mxing plane */
   CHT_WALL_INTERFACE = 50,    /*!< \brief Domain interface definition. */
   SMOLUCHOWSKI_MAXWELL = 55,  /*!< \brief Smoluchoski/Maxwell wall boundary condition. */
   SEND_RECEIVE = 99,          /*!< \brief Boundary send-receive definition. */
@@ -1753,8 +1752,7 @@ enum RIEMANN_TYPE {
   TOTAL_CONDITIONS_PT_1D = 11,
   STATIC_PRESSURE_1D = 12,
   MIXING_IN_1D = 13,
-  MIXING_OUT_1D = 14,
-  MASS_FLOW_OUTLET = 15
+  MIXING_OUT_1D =14
 };
 static const MapType<std::string, RIEMANN_TYPE> Riemann_Map = {
   MakePair("TOTAL_CONDITIONS_PT", TOTAL_CONDITIONS_PT)
@@ -1771,7 +1769,6 @@ static const MapType<std::string, RIEMANN_TYPE> Riemann_Map = {
   MakePair("RADIAL_EQUILIBRIUM", RADIAL_EQUILIBRIUM)
   MakePair("TOTAL_CONDITIONS_PT_1D", TOTAL_CONDITIONS_PT_1D)
   MakePair("STATIC_PRESSURE_1D", STATIC_PRESSURE_1D)
-  MakePair("MASS_FLOW_OUTLET", MASS_FLOW_OUTLET)
 };
 
 static const MapType<std::string, RIEMANN_TYPE> Giles_Map = {
@@ -1789,7 +1786,6 @@ static const MapType<std::string, RIEMANN_TYPE> Giles_Map = {
   MakePair("RADIAL_EQUILIBRIUM", RADIAL_EQUILIBRIUM)
   MakePair("TOTAL_CONDITIONS_PT_1D", TOTAL_CONDITIONS_PT_1D)
   MakePair("STATIC_PRESSURE_1D", STATIC_PRESSURE_1D)
-  MakePair("MASS_FLOW_OUTLET", MASS_FLOW_OUTLET)
 };
 
 /*!
@@ -1864,18 +1860,6 @@ static const MapType<std::string, TURBO_PERF_KIND> TurboPerfKind_Map = {
   MakePair("TURBINE",  TURBO_PERF_KIND::TURBINE)
   MakePair("COMPRESSOR",  TURBO_PERF_KIND::COMPRESSOR)
   MakePair("PROPELLOR",  TURBO_PERF_KIND::PROPELLOR)
-};
-
-/*!
- * \brief Types of Turbomachinery interfaces.
- */
-enum class TURBO_INTERFACE_KIND{
-  MIXING_PLANE = ENUM_TRANSFER::MIXING_PLANE,
-  FROZEN_ROTOR = ENUM_TRANSFER::SLIDING_INTERFACE,
-};
-static const MapType<std::string, TURBO_INTERFACE_KIND> TurboInterfaceKind_Map = {
-  MakePair("MIXING_PLANE", TURBO_INTERFACE_KIND::MIXING_PLANE)
-  MakePair("FROZEN_ROTOR", TURBO_INTERFACE_KIND::FROZEN_ROTOR)
 };
 
 /*!
@@ -2010,6 +1994,9 @@ enum ENUM_OBJECTIVE {
   TOPOL_DISCRETENESS = 63,      /*!< \brief Measure of the discreteness of the current topology. */
   TOPOL_COMPLIANCE = 64,        /*!< \brief Measure of the discreteness of the current topology. */
   STRESS_PENALTY = 65,          /*!< \brief Penalty function of VM stresses above a maximum value. */
+  ENTROPY_GENERATION = 80,      /*!< \brief Entropy generation turbomachinery objective function. */
+  TOTAL_PRESSURE_LOSS = 81,     /*!< \brief Total pressure loss turbomachinery objective function. */
+  KINETIC_ENERGY_LOSS = 82      /*!< \breif Kinetic energy loss coefficient turbomachinery objective function. */
 };
 static const MapType<std::string, ENUM_OBJECTIVE> Objective_Map = {
   MakePair("DRAG", DRAG_COEFFICIENT)
@@ -2052,6 +2039,9 @@ static const MapType<std::string, ENUM_OBJECTIVE> Objective_Map = {
   MakePair("TOPOL_DISCRETENESS", TOPOL_DISCRETENESS)
   MakePair("TOPOL_COMPLIANCE", TOPOL_COMPLIANCE)
   MakePair("STRESS_PENALTY", STRESS_PENALTY)
+  MakePair("ENTROPY_GENERATION", ENTROPY_GENERATION)
+  MakePair("TOTAL_PRESSURE_LOSS", TOTAL_PRESSURE_LOSS)
+  MakePair("KINETIC_ENERGY_LOSS", KINETIC_ENERGY_LOSS)
 };
 
 /*!
