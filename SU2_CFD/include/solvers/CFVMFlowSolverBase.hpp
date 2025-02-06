@@ -922,10 +922,14 @@ class CFVMFlowSolverBase : public CSolver {
 
         if (nodes->GetDelta_Time(iPoint) != 0.0) {
 
-          // su2double Vol = geometry->nodes->GetVolume(iPoint) + geometry->nodes->GetPeriodicVolume(iPoint);
-          su2double Vol = geometry->nodes->GetModifiedVolume(iPoint) + geometry->nodes->GetModifiedPeriodicVolume(iPoint);
+          su2double Vol = geometry->nodes->GetVolume(iPoint) + geometry->nodes->GetPeriodicVolume(iPoint);
+          su2double modVol = geometry->nodes->GetModifiedVolume(iPoint) + geometry->nodes->GetModifiedPeriodicVolume(iPoint);
 
-          su2double Delta = Vol / nodes->GetDelta_Time(iPoint);
+          // if (abs(Vol-modVol)/Vol>1e-3){
+          //   std::cout << "Point " << iPoint << " has original volume: " << Vol << " and modified volume: " << modVol << ". -> Blockage: " << modVol/Vol << std::endl;
+          // }
+
+          su2double Delta = modVol / nodes->GetDelta_Time(iPoint);
 
           if (preconditioner.active)
             Jacobian.AddBlock2Diag(iPoint, preconditioner(config, iPoint, Delta));

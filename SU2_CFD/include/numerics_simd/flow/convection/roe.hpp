@@ -166,11 +166,11 @@ public:
 
     /*--- Inviscid fluxes and Jacobians. ---*/
 
-    // auto flux_i = inviscidProjFlux(V.i, U.i, normal);
-    // auto flux_j = inviscidProjFlux(V.j, U.j, normal);
+    auto flux_i = inviscidProjFlux(V.i, U.i, normal);
+    auto flux_j = inviscidProjFlux(V.j, U.j, normal);
 
-    auto flux_i = inviscidProjFlux(V.i, U.i, modified_normal);
-    auto flux_j = inviscidProjFlux(V.j, U.j, modified_normal);
+    // auto flux_i = inviscidProjFlux(V.i, U.i, modified_normal);
+    // auto flux_j = inviscidProjFlux(V.j, U.j, modified_normal);
 
     // auto flux_i = inviscidProjFlux(V.i, U.i, normal, blockage); // blockage version
     // auto flux_j = inviscidProjFlux(V.j, U.j, normal, blockage); // blockage version
@@ -182,11 +182,11 @@ public:
 
     MatrixDbl<nVar> jac_i, jac_j;
     if (implicit) {
-      // jac_i = inviscidProjJac(gamma, V.i.velocity(), U.i.energy(), normal, kappa);
-      // jac_j = inviscidProjJac(gamma, V.j.velocity(), U.j.energy(), normal, kappa);
+      jac_i = inviscidProjJac(gamma, V.i.velocity(), U.i.energy(), normal, kappa);
+      jac_j = inviscidProjJac(gamma, V.j.velocity(), U.j.energy(), normal, kappa);
 
-      jac_i = inviscidProjJac(gamma, V.i.velocity(), U.i.energy(), modified_normal, kappa);
-      jac_j = inviscidProjJac(gamma, V.j.velocity(), U.j.energy(), modified_normal, kappa);
+      // jac_i = inviscidProjJac(gamma, V.i.velocity(), U.i.energy(), modified_normal, kappa);
+      // jac_j = inviscidProjJac(gamma, V.j.velocity(), U.j.energy(), modified_normal, kappa);
     }
 
     /*--- Correct for grid motion. ---*/
@@ -207,19 +207,19 @@ public:
 
     const auto derived = static_cast<const Derived*>(this);
 
-    // derived->finalizeFlux(flux, jac_i, jac_j, implicit, area, unitNormal, V,
-    //                       U, roeAvg, lambda, pMat, iPoint, jPoint, solution);
-
-    derived->finalizeFlux(flux, jac_i, jac_j, implicit, modified_area, unitNormal, V,
+    derived->finalizeFlux(flux, jac_i, jac_j, implicit, area, unitNormal, V,
                           U, roeAvg, lambda, pMat, iPoint, jPoint, solution);
+
+    // derived->finalizeFlux(flux, jac_i, jac_j, implicit, modified_area, unitNormal, V,
+    //                       U, roeAvg, lambda, pMat, iPoint, jPoint, solution);
 
     /*--- Add the contributions from the base class (static decorator). ---*/
 
-    // Base::viscousTerms(iEdge, iPoint, jPoint, V1st, solution_, vector_ij, geometry,
-    //                    config, area, unitNormal, implicit, flux, jac_i, jac_j);
-    
     Base::viscousTerms(iEdge, iPoint, jPoint, V1st, solution_, vector_ij, geometry,
-                       config, modified_area, unitNormal, implicit, flux, jac_i, jac_j);
+                       config, area, unitNormal, implicit, flux, jac_i, jac_j);
+    
+    // Base::viscousTerms(iEdge, iPoint, jPoint, V1st, solution_, vector_ij, geometry,
+    //                    config, modified_area, unitNormal, implicit, flux, jac_i, jac_j);
 
     /*--- Stop preaccumulation. ---*/
 
